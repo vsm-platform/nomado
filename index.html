@@ -360,6 +360,10 @@ footer .fl a{text-decoration:none;opacity:.8}
   .dest-row .ds{flex-basis:76px;height:76px}
   .dest-row .go{display:none}
 }
+body.demo header.top,body.demo .mbar,body.demo footer,body.demo .pp-sec:last-of-type,body.demo .note,body.demo .dest-row .go{display:none!important}
+body.demo .pp-hero{padding:56px 0 52px}
+body.demo .pp-body{padding-bottom:30px}
+body.demo #confetti{position:fixed}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01s!important;animation-iteration-count:1!important;transition-duration:.01s!important}}
 </style>
 </head>
@@ -571,10 +575,11 @@ const moneyT=v=>`${CONFIG.currency} ${(+v).toFixed(CONFIG.decimals)}`;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 /* ---------------- storage (safe) ---------------- */
+const DEMO=/[?&]demo=1/.test(location.search);
 const mem={};
 const store={
-  get(k,d){try{const v=localStorage.getItem("nomado."+k);return v==null?(k in mem?mem[k]:d):JSON.parse(v)}catch(e){return k in mem?mem[k]:d}},
-  set(k,v){mem[k]=v;try{localStorage.setItem("nomado."+k,JSON.stringify(v))}catch(e){}}
+  get(k,d){if(DEMO)return k in mem?mem[k]:d;try{const v=localStorage.getItem("nomado."+k);return v==null?(k in mem?mem[k]:d):JSON.parse(v)}catch(e){return k in mem?mem[k]:d}},
+  set(k,v){mem[k]=v;if(DEMO)return;try{localStorage.setItem("nomado."+k,JSON.stringify(v))}catch(e){}}
 };
 let cart=store.get("cart",{});          // {productId: qty}
 let pass=store.get("passport",{stamps:[],journey:1,vouchers:[],orders:[]});
@@ -852,8 +857,9 @@ function ac(){if(!actx){try{actx=new (window.AudioContext||window.webkitAudioCon
 document.addEventListener("pointerdown",ac,{once:true});
 function tone(f,dur,type,vol,when=0,slide){const a=ac();if(!a)return;const t=a.currentTime+when;const o=a.createOscillator(),g=a.createGain();o.type=type;o.frequency.setValueAtTime(f,t);if(slide)o.frequency.exponentialRampToValueAtTime(slide,t+dur);
   g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.015);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g).connect(a.destination);o.start(t);o.stop(t+dur+.05)}
-const thud=()=>tone(150,.25,"sine",.5,0,55);
-const chime=()=>[784,988,1175,1568].forEach((f,i)=>tone(f,.9,"triangle",.14,i*.09));
+let muted=false;
+const thud=()=>{if(!muted)tone(150,.25,"sine",.5,0,55)};
+const chime=()=>{if(!muted)[784,988,1175,1568].forEach((f,i)=>tone(f,.9,"triangle",.14,i*.09))};
 function confetti(){const box=$("#confetti");const cols=["#E7C17B","#F6DEAA","#F2A33A","#F6D365","#EED9A0","#153E39"];
   for(let i=0;i<80;i++){const e=document.createElement("i");const s=6+Math.random()*8;e.style.left=Math.random()*100+"%";e.style.width=s+"px";e.style.height=(Math.random()<.5?s:s*.45)+"px";
     e.style.background=cols[i%cols.length];e.style.borderRadius=Math.random()<.5?"50%":"2px";e.style.animationDuration=(1.8+Math.random()*1.8)+"s";e.style.animationDelay=Math.random()*.4+"s";box.appendChild(e);setTimeout(()=>e.remove(),4500)}}
@@ -864,7 +870,7 @@ function go(h){if(location.hash!==h)location.hash=h;else route()}
 function route(){
   const h=location.hash;
   if(h==="#how"||h==="#products"){$("#v-shop").classList.add("on");$("#v-passport").classList.remove("on");setNav("shop");return}
-  const view=h.startsWith("#/passport")?"passport":"shop";
+  const view=DEMO||h.startsWith("#/passport")?"passport":"shop";
   $("#v-shop").classList.toggle("on",view==="shop");$("#v-passport").classList.toggle("on",view==="passport");
   setNav(view);if(view==="passport")renderPassport();
   $$(".sheet.on").forEach(closeSheet);closeCart();
@@ -874,7 +880,22 @@ function setNav(v){$$("[data-nav]").forEach(a=>a.classList.toggle("cur",a.datase
 addEventListener("hashchange",route);
 
 function renderAll(){renderGrid();renderCart();renderPassport()}
-renderAll();route();handleScan();
+renderAll();route();if(!DEMO)handleScan();
+/* ---------------- presentation demo mode (?demo=1) ---------------- */
+if(DEMO){
+  document.body.classList.add("demo");
+  const blank=()=>({stamps:[],journey:1,vouchers:[],orders:[]});
+  function demoStamp(id){if(pass.stamps.includes(id))return;pass.stamps.push(id);freshStamp=id;
+    let rw=pass.stamps.length>=3;if(rw)pass.vouchers=[{code:"FREE-NM26X",used:false,earned:new Date().toISOString(),journey:1}];
+    renderPassport();thud();if(rw)setTimeout(()=>{chime();confetti();const v=$("#ppVouchers");if(v)v.scrollIntoView({behavior:"smooth",block:"center"})},500)}
+  addEventListener("message",e=>{const m=e.data||{};
+    if(m.type==="stamp"&&DESTS[m.i])demoStamp(DESTS[m.i].id);
+    if(m.type==="reset"){pass=blank();renderPassport();window.scrollTo(0,0)}
+    if(m.type==="setstate"){pass=blank();DESTS.forEach((d,i)=>{if(m.state[i])pass.stamps.push(d.id)});if(pass.stamps.length>=3)pass.vouchers=[{code:"FREE-NM26X",used:false,journey:1}];renderPassport()}
+    if(m.type==="mute")muted=!!m.value;
+    if(m.type==="hello"&&parent!==window)parent.postMessage({type:"demo-ready"},"*")});
+  if(parent!==window)parent.postMessage({type:"demo-ready"},"*");
+}
 // sync between tabs
 addEventListener("storage",e=>{if(e.key&&e.key.startsWith("nomado.")){cart=store.get("cart",{});pass=store.get("passport",pass);renderAll()}});
 })();
